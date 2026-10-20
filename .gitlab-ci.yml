@@ -1,0 +1,63 @@
+stages: [lint, test, build, deploy]
+
+lint-api:
+  stage: lint
+  image: golangci/golangci-lint:v1.59
+  script: [cd api, golangci-lint run ./...]
+
+lint-web:
+  stage: lint
+  image: node:22-alpine
+  script: [cd web, npm install, npm run lint]
+
+test-api:
+  stage: test
+  image: golang:1.22-alpine
+  script:
+    - cd api
+    - go install github.com/jstemmer/go-junit-report/v2@latest
+    - go test -v ./... 2>&1 | tee out.txt
+    - $(go env GOPATH)/bin/go-junit-report -in out.txt -set-exit-code > report.xml
+  artifacts:
+    when: always
+    reports: { junit: api/report.xml }
+
+test-web:
+  stage: test
+  image: node:22-alpine
+  script: [cd web, npm install, "npx vitest run --reporter=junit --outputFile=report.xml"]
+  artifacts:
+    when: always
+    reports: { junit: web/report.xml }
+
+.build:
+  stage: build
+  image: docker:27
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+
+build-api:
+  extends: .build
+  needs: [lint-api, test-api]
+  script:
+    - docker build -f api/Dockerfile.prod -t $CI_REGISTRY_IMAGE/api:$CI_COMMIT_SHORT_SHA api
+    - docker push $CI_REGISTRY_IMAGE/api:$CI_COMMIT_SHORT_SHA
+
+build-web:
+  extends: .build
+  needs: [lint-web, test-web]
+  script:
+    - docker build -f web/Dockerfile.prod -t $CI_REGISTRY_IMAGE/web:$CI_COMMIT_SHORT_SHA web
+    - docker push $CI_REGISTRY_IMAGE/web:$CI_COMMIT_SHORT_SHA
+
+deploy-prod:
+  stage: deploy
+  image: docker:27
+  needs: [build-api, build-web]
+  rules: [{ if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH' }]
+  environment: production
+  variables: { TAG: $CI_COMMIT_SHORT_SHA }
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - docker compose -f deploy/compose.prod.yml pull
+    - docker compose -f deploy/compose.prod.yml up -d --wait
