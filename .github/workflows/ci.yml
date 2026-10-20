@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.22" }
+      - run: cd api && go vet ./... && go test ./...
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - run: cd web && npm install && npm run lint && npm test
+
+  mirror:
+    if: github.event_name == 'push' && github.repository == 'enzogagg/Trinity'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Push to Epitech mirror
+        env:
+          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+        run: |
+          git push --prune \
+            "https://x-access-token:${MIRROR_TOKEN}@github.com/Epitech2026-2027/I-DEV-701-INT-7-1-trinitydevops-17.git" \
+            "+refs/heads/*:refs/heads/*" "+refs/tags/*:refs/tags/*"
