@@ -27,11 +27,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - name: Push to Epitech mirror
         env:
           MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
         run: |
+          if [ -z "$MIRROR_TOKEN" ]; then echo "MIRROR_TOKEN is empty"; exit 1; fi
+          echo "token length: ${#MIRROR_TOKEN}"
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $MIRROR_TOKEN" \
+            https://api.github.com/repos/Epitech2026-2027/I-DEV-701-INT-7-1-trinitydevops-17)
+          echo "API access check: HTTP $code"
           git push --prune \
             "https://x-access-token:${MIRROR_TOKEN}@github.com/Epitech2026-2027/I-DEV-701-INT-7-1-trinitydevops-17.git" \
             "+refs/heads/*:refs/heads/*" "+refs/tags/*:refs/tags/*"
