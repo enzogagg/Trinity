@@ -22,6 +22,7 @@ jobs:
       - run: cd web && npm install && npm run lint && npm test
 
   mirror:
+    needs: [api, web]
     if: github.event_name == 'push' && github.repository == 'enzogagg/Trinity'
     runs-on: ubuntu-latest
     steps:
