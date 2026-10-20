@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:16-alpine
+    env_file: ../.env.dev
+    volumes: [pgdata-dev:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      retries: 10
+  api:
+    build: { context: ../api, dockerfile: Dockerfile.dev }
+    env_file: ../.env.dev
+    volumes: [../api:/app]
+    depends_on: { db: { condition: service_healthy } }
+    ports: ["8080:8080"]
+  web:
+    build: { context: ../web, dockerfile: Dockerfile.dev }
+    volumes: [../web:/app, /app/node_modules]
+    depends_on: [api]
+    ports: ["5173:5173"]
+volumes:
+  pgdata-dev:
