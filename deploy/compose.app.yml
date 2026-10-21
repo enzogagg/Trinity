@@ -6,7 +6,8 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
     networks:
       trinity:
-        aliases: [api-${COLOR}]
+        aliases:
+          - api-${COLOR}
     healthcheck:
       test: ["CMD", "/api", "healthcheck"]
       interval: 3s
@@ -16,7 +17,8 @@ services:
     restart: unless-stopped
     networks:
       trinity:
-        aliases: [web-${COLOR}]
+        aliases:
+          - web-${COLOR}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
       interval: 3s
