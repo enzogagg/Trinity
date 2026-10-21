@@ -59,5 +59,4 @@ deploy-prod:
   variables: { TAG: $CI_COMMIT_SHORT_SHA }
   script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
-    - docker compose -f deploy/compose.prod.yml pull
-    - docker compose -f deploy/compose.prod.yml up -d --wait
+    - sh deploy/deploy.sh
