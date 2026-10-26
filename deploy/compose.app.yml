@@ -1,6 +1,6 @@
 services:
   api:
-    image: ${CI_REGISTRY_IMAGE}/api:${TAG}
+    image: ${API_IMAGE:-${CI_REGISTRY_IMAGE}/api:${TAG}}
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
@@ -13,7 +13,7 @@ services:
       interval: 3s
       retries: 10
   web:
-    image: ${CI_REGISTRY_IMAGE}/web:${TAG}
+    image: ${WEB_IMAGE:-${CI_REGISTRY_IMAGE}/web:${TAG}}
     restart: unless-stopped
     networks:
       trinity:

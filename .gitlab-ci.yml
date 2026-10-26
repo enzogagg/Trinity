@@ -11,7 +11,7 @@ default:
   # un nouveau push annule les jobs encore en cours de l'ancien commit
   interruptible: true
 
-stages: [security, lint, test, build, deploy]
+stages: [security, lint, test, build, deploy, verify]
 
 gitleaks:
   stage: security
@@ -48,6 +48,7 @@ gitleaks:
 
 lint-api:
   stage: lint
+  needs: [{ job: gitleaks, artifacts: false }]
   image: golangci/golangci-lint:v2.15.0
   script:
     - cd api
@@ -61,6 +62,7 @@ lint-api:
 
 lint-web:
   stage: lint
+  needs: [{ job: gitleaks, artifacts: false }]
   extends: .web
   script:
     # tsc --noEmit (types) puis ESLint
@@ -70,6 +72,7 @@ lint-web:
 
 test-api:
   stage: test
+  needs: [{ job: gitleaks, artifacts: false }]
   extends: .go
   script:
     - go install github.com/jstemmer/go-junit-report/v2@v2.1.0
@@ -94,6 +97,7 @@ test-api:
 
 test-web:
   stage: test
+  needs: [{ job: gitleaks, artifacts: false }]
   extends: .web
   script:
     - npx vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=report.xml
@@ -114,32 +118,61 @@ test-web:
   image: docker:27
   before_script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  script:
+    - IMAGE="$CI_REGISTRY_IMAGE/$COMPONENT:$CI_COMMIT_SHORT_SHA"
+    - docker build --pull -f $COMPONENT/Dockerfile.prod -t "$IMAGE" $COMPONENT
+    - docker push "$IMAGE"
+    # artifact dotenv : référence immuable (digest) de l'image poussée, transmise au déploiement
+    - echo "${VAR_NAME}=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE")" | tee build.env
+  artifacts:
+    expire_in: 1 week
+    reports:
+      dotenv: build.env
 
 build-api:
   extends: .build
-  needs: [lint-api, test-api]
-  script:
-    - docker build --pull -f api/Dockerfile.prod -t $CI_REGISTRY_IMAGE/api:$CI_COMMIT_SHORT_SHA api
-    - docker push $CI_REGISTRY_IMAGE/api:$CI_COMMIT_SHORT_SHA
+  # ne dépend que du lint et des tests de l'API (pas besoin de leurs rapports)
+  needs:
+    - { job: lint-api, artifacts: false }
+    - { job: test-api, artifacts: false }
+  variables: { COMPONENT: api, VAR_NAME: API_IMAGE }
 
 build-web:
   extends: .build
-  needs: [lint-web, test-web]
-  script:
-    - docker build --pull -f web/Dockerfile.prod -t $CI_REGISTRY_IMAGE/web:$CI_COMMIT_SHORT_SHA web
-    - docker push $CI_REGISTRY_IMAGE/web:$CI_COMMIT_SHORT_SHA
+  needs:
+    - { job: lint-web, artifacts: false }
+    - { job: test-web, artifacts: false }
+  variables: { COMPONENT: web, VAR_NAME: WEB_IMAGE }
 
 # --- Deploy ------------------------------------------------------------------
 
 deploy-prod:
   stage: deploy
   image: docker:27
-  needs: [build-api, build-web]
+  # récupère API_IMAGE et WEB_IMAGE depuis les artifacts dotenv des builds
+  needs:
+    - { job: build-api, artifacts: true }
+    - { job: build-web, artifacts: true }
   rules: [{ if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH' }]
   environment: production
   # ne jamais interrompre une bascule blue/green en cours
   interruptible: false
   variables: { TAG: $CI_COMMIT_SHORT_SHA }
   script:
+    - echo "deploying $API_IMAGE and $WEB_IMAGE"
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
     - sh deploy/deploy.sh
+
+# --- Verify ------------------------------------------------------------------
+
+verify-prod:
+  stage: verify
+  image: docker:27
+  needs: [{ job: deploy-prod, artifacts: false }]
+  rules: [{ if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH' }]
+  interruptible: false
+  script:
+    # test de fumée à travers le proxy : web, API et connexion PostgreSQL
+    - docker exec trinity-proxy wget -qO- http://127.0.0.1/ > /dev/null
+    - docker exec trinity-proxy wget -qO- http://127.0.0.1/api/health
+    - docker exec trinity-proxy wget -qO- http://127.0.0.1/api/health/db
