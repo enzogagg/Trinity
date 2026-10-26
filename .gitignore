@@ -1,11 +1,29 @@
+# Secrets (seul .env.example est versionné)
 .env
 .env.*
 !.env.example
+
+# Dépendances et builds
 node_modules/
 dist/
-coverage/
-*.log
 api/bin/
+
+# Rapports de tests et de CI
+coverage/
+report.xml
+test-output.txt
+coverage.out
+coverage.xml
+gl-code-quality-report.json
+build.env
+
+# Caches CI (GOPATH et cache npm dans le répertoire du projet)
+.go/
+.npm/
+.gitlab-ci-local/
+
+# Divers
+*.log
 .DS_Store
 .idea/
 .vscode/

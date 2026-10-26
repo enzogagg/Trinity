@@ -1,0 +1,6 @@
+# Fins de ligne LF partout (scripts et Dockerfiles exécutés sous Linux), quelle que soit la config core.autocrlf
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary

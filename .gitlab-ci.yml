@@ -23,6 +23,20 @@ gitleaks:
   script:
     - gitleaks git --redact --verbose .
 
+# Merge requests uniquement : nom de branche et messages de commit (CONTRIBUTING.md)
+conventions:
+  stage: security
+  image:
+    name: alpine/git:2.47.2
+    entrypoint: [""]
+  needs: []
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    GIT_DEPTH: "0"
+  script:
+    - sh scripts/check-conventions.sh
+
 # --- Modèles -----------------------------------------------------------------
 
 .go:
