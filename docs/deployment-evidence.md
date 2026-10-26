@@ -66,3 +66,14 @@ multipass exec runner -- sudo docker exec trinity-proxy \
 - Log `active=blue -> deploying green`, puis `traffic switched to green`.
 - Série continue de statuts HTTP 200 pendant la bascule.
 - Conteneurs API et Web `green` en état `healthy`.
+
+## Reprise après redémarrage des VM
+
+Test effectué le 26 octobre 2026 avec `multipass restart gitlab runner`.
+
+- GitLab a retrouvé un état opérationnel et répondu avec une redirection HTTP 302 vers la page de connexion.
+- Le runner s'est reconnecté automatiquement et `gitlab-runner verify` a indiqué `is valid`.
+- GitLab a redémarré Gitaly, KAS, Workhorse, nginx, PostgreSQL, Puma, Redis, le registry et Sidekiq.
+- PostgreSQL, l'API et le Web ont retrouvé l'état `healthy` grâce à `restart: unless-stopped`.
+- Le proxy a réexposé automatiquement le port 80.
+- L'endpoint `/api/health` a répondu `{"status":"ok"}` sans intervention sur les conteneurs.
