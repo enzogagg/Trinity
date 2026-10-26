@@ -13,7 +13,11 @@ func main() {
 	// `api healthcheck` : utilisé par Docker (image distroless sans curl)
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		resp, err := http.Get("http://127.0.0.1:8080/api/health")
-		if err != nil || resp.StatusCode != http.StatusOK {
+		if err != nil {
+			os.Exit(1)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
 			os.Exit(1)
 		}
 		return

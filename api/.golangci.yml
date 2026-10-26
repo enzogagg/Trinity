@@ -1,0 +1,12 @@
+version: "2"
+
+linters:
+  # standard : errcheck, govet, ineffassign, staticcheck, unused
+  default: standard
+  enable:
+    - bodyclose
+    - misspell
+
+formatters:
+  enable:
+    - gofmt
