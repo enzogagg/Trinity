@@ -1,3 +1,16 @@
+# Une seule pipeline par commit : pipeline de MR si une MR est ouverte, sinon pipeline de branche
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+default:
+  # un nouveau push annule les jobs encore en cours de l'ancien commit
+  interruptible: true
+
 stages: [security, lint, test, build, deploy]
 
 gitleaks:
@@ -10,35 +23,91 @@ gitleaks:
   script:
     - gitleaks git --redact --verbose .
 
+# --- Modèles -----------------------------------------------------------------
+
+.go:
+  image: golang:1.27-alpine
+  variables:
+    GOPATH: $CI_PROJECT_DIR/.go
+  cache:
+    key: { files: [api/go.sum] }
+    paths: [.go/pkg/mod/]
+
+.web:
+  image: node:22-alpine
+  variables:
+    npm_config_cache: $CI_PROJECT_DIR/.npm
+  cache:
+    key: { files: [web/package-lock.json] }
+    paths: [.npm/]
+  before_script:
+    - cd web
+    - npm ci --prefer-offline --no-audit --no-fund
+
+# --- Lint --------------------------------------------------------------------
+
 lint-api:
   stage: lint
   image: golangci/golangci-lint:v2.15.0
-  script: [cd api, golangci-lint run ./...]
+  script:
+    - cd api
+    # texte dans les logs + rapport Code Quality affiché dans les merge requests
+    - golangci-lint run --output.text.path=stdout --output.code-climate.path=gl-code-quality-report.json ./...
+  artifacts:
+    when: always
+    expire_in: 1 week
+    reports:
+      codequality: api/gl-code-quality-report.json
 
 lint-web:
   stage: lint
-  image: node:22-alpine
-  script: [cd web, npm install, npm run lint]
+  extends: .web
+  script:
+    # tsc --noEmit (types) puis ESLint
+    - npm run lint
+
+# --- Tests -------------------------------------------------------------------
 
 test-api:
   stage: test
-  image: golang:1.27-alpine
+  extends: .go
   script:
+    - go install github.com/jstemmer/go-junit-report/v2@v2.1.0
+    - go install github.com/boumenot/gocover-cobertura@v1.5.0
     - cd api
-    - go install github.com/jstemmer/go-junit-report/v2@latest
-    - go test -v ./... 2>&1 | tee out.txt
-    - $(go env GOPATH)/bin/go-junit-report -in out.txt -set-exit-code > report.xml
+    # on garde le code retour de go test pour publier le rapport JUnit avant d'échouer
+    - go test -v -coverprofile=coverage.out ./... > test-output.txt 2>&1 || TEST_STATUS=$?
+    - cat test-output.txt
+    - $GOPATH/bin/go-junit-report -in test-output.txt > report.xml
+    - '[ -z "$TEST_STATUS" ] || exit "$TEST_STATUS"'
+    - go tool cover -func=coverage.out
+    - $GOPATH/bin/gocover-cobertura < coverage.out > coverage.xml
+  coverage: '/^total:\s+\(statements\)\s+(\d+(?:\.\d+)?)%/'
   artifacts:
     when: always
-    reports: { junit: api/report.xml }
+    expire_in: 1 week
+    reports:
+      junit: api/report.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: api/coverage.xml
 
 test-web:
   stage: test
-  image: node:22-alpine
-  script: [cd web, npm install, "npx vitest run --reporter=junit --outputFile=report.xml"]
+  extends: .web
+  script:
+    - npx vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=report.xml
+  coverage: '/^Lines\s*:\s*(\d+(?:\.\d+)?)%/'
   artifacts:
     when: always
-    reports: { junit: web/report.xml }
+    expire_in: 1 week
+    reports:
+      junit: web/report.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: web/coverage/cobertura-coverage.xml
+
+# --- Build -------------------------------------------------------------------
 
 .build:
   stage: build
@@ -50,15 +119,17 @@ build-api:
   extends: .build
   needs: [lint-api, test-api]
   script:
-    - docker build -f api/Dockerfile.prod -t $CI_REGISTRY_IMAGE/api:$CI_COMMIT_SHORT_SHA api
+    - docker build --pull -f api/Dockerfile.prod -t $CI_REGISTRY_IMAGE/api:$CI_COMMIT_SHORT_SHA api
     - docker push $CI_REGISTRY_IMAGE/api:$CI_COMMIT_SHORT_SHA
 
 build-web:
   extends: .build
   needs: [lint-web, test-web]
   script:
-    - docker build -f web/Dockerfile.prod -t $CI_REGISTRY_IMAGE/web:$CI_COMMIT_SHORT_SHA web
+    - docker build --pull -f web/Dockerfile.prod -t $CI_REGISTRY_IMAGE/web:$CI_COMMIT_SHORT_SHA web
     - docker push $CI_REGISTRY_IMAGE/web:$CI_COMMIT_SHORT_SHA
+
+# --- Deploy ------------------------------------------------------------------
 
 deploy-prod:
   stage: deploy
@@ -66,6 +137,8 @@ deploy-prod:
   needs: [build-api, build-web]
   rules: [{ if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH' }]
   environment: production
+  # ne jamais interrompre une bascule blue/green en cours
+  interruptible: false
   variables: { TAG: $CI_COMMIT_SHORT_SHA }
   script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
