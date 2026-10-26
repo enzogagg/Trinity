@@ -12,7 +12,7 @@ gitleaks:
 
 lint-api:
   stage: lint
-  image: golangci/golangci-lint:v1.59
+  image: golangci/golangci-lint:v2.15.0
   script: [cd api, golangci-lint run ./...]
 
 lint-web:
@@ -22,7 +22,7 @@ lint-web:
 
 test-api:
   stage: test
-  image: golang:1.22-alpine
+  image: golang:1.27-alpine
   script:
     - cd api
     - go install github.com/jstemmer/go-junit-report/v2@latest
